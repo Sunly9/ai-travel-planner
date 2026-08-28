@@ -1,0 +1,52 @@
+# ===== 后端 =====
+travel-project1/target/
+travel-project1/.idea/
+travel-project1/.settings/
+travel-project1/.classpath
+travel-project1/.project
+travel-project1/*.iml
+travel-project1/dependency-reduced-pom.xml
+travel-project1/HELP.md
+travel-project1/mvnw
+travel-project1/mvnw.cmd
+
+# ===== 前端 =====
+travl-1/node_modules/
+travl-1/dist/
+travl-1/dist-ssr/
+travl-1/.vite/
+travl-1/stats.html
+travl-1/*.local
+
+# ===== 设计稿（不需要传） =====
+travl-1-design/
+
+# ===== 敏感文件（不传到 GitHub） =====
+**/application.yml
+**/application-local.yml
+**/application-prod.yml
+**/.env.local
+**/.env.*.local
+
+# ===== 日志 =====
+*.log
+logs/
+travel-project1/logs/
+
+# ===== 系统 =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ===== IDE =====
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/

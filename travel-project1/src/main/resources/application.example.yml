@@ -1,0 +1,50 @@
+# ============================================================
+# application.yml 配置模板
+# 
+# 使用方法：
+#   1. 复制本文件为 application.yml
+#   2. 把下面的占位符替换成你自己的真实值
+#   3. 真实的 application.yml 不要提交到 GitHub（已被 .gitignore 忽略）
+#
+# 或者通过环境变量配置（推荐生产环境用）：
+#   export LLM_API_KEY=sk-xxx
+#   export DB_PASSWORD=your-password
+#   ...
+# ============================================================
+
+server:
+  port: 3200
+
+llm:
+  # SiliconFlow API 地址（免费注册：https://siliconflow.cn）
+  base-url: https://api.siliconflow.cn/v1
+  # 模型名（SiliconFlow 支持的模型）
+  model: Pro/zai-org/GLM-5.1
+  # 你的 SiliconFlow API Key（去 https://cloud.siliconflow.cn 获取）
+  api-key: YOUR_SILICONFLOW_API_KEY
+
+spring:
+  datasource:
+    # MySQL 连接
+    url: jdbc:mysql://localhost:3306/travel_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    username: root
+    password: YOUR_MYSQL_PASSWORD
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update  # 开发用 update，生产环境改 validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+
+jwt:
+  # JWT 密钥，随便填一串字符（建议 50 位以上）
+  secret: YOUR_JWT_SECRET_AT_LEAST_50_CHARS
+  expiration: 86400000  # 1 天（毫秒）
+
+amap:
+  # 高德开放平台 Web服务 Key（去 https://open.amap.com 申请，免费）
+  key: YOUR_AMAP_KEY
