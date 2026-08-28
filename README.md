@@ -10,7 +10,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
-[功能特性](#-功能特性) · [技术栈](#-技术栈) · [快速开始](#-快速开始) · [项目结构](#-项目结构) · [接口文档](#-主要接口)
+[功能特性](#-功能特性) · [项目截图](#-项目截图) · [技术栈](#-技术栈) · [快速开始](#-快速开始) · [项目结构](#-项目结构) · [接口文档](#-主要接口)
 
 </div>
 
@@ -30,7 +30,7 @@
 | 💬 **AI 对话** | 旅游相关问题智能问答 |
 | 📸 **行程分享** | 生成行程图片，下载或分享给朋友 |
 
-## �️ 项目截图
+## 📸 项目截图
 
 | 首页 | AI 行程规划 |
 |---|---|
@@ -44,7 +44,7 @@
 |---|---|
 | ![实时天气](docs/screenshots/weather.png) | ![个人中心](docs/screenshots/profile.png) |
 
-## �🛠️ 技术栈
+## 📦 技术栈
 
 ### 后端
 - [Spring Boot 4.x](https://spring.io/projects/spring-boot) — Web 框架
@@ -132,7 +132,7 @@ cd travel-project1
 cp src/main/resources/application.example.yml src/main/resources/application.yml
 ```
 
-编辑 `application.yml`，填入你的密钥：
+编辑 `application.yml`，填入你自己的密钥（生产环境建议改用环境变量注入）：
 
 ```yaml
 llm:
@@ -143,7 +143,7 @@ spring:
     password: 你的MySQL密码
 
 jwt:
-  secret: 随便一串50+字符
+  secret: 自定义随机字符串（不少于 50 字符）
 
 amap:
   key: 你的高德Web服务Key
@@ -155,7 +155,7 @@ amap:
 CREATE DATABASE travel_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-JPA 配置 `ddl-auto: update`，首次启动自动建表。
+JPA 配置 `ddl-auto: update`，首次启动自动建表（生产环境建议改为 `validate`，避免自动修改表结构）。
 
 ### 4. 启动后端
 
