@@ -30,7 +30,21 @@
 | 💬 **AI 对话** | 旅游相关问题智能问答 |
 | 📸 **行程分享** | 生成行程图片，下载或分享给朋友 |
 
-## 🛠️ 技术栈
+## �️ 项目截图
+
+| 首页 | AI 行程规划 |
+|---|---|
+| ![首页](docs/screenshots/home.png) | ![AI 行程规划](docs/screenshots/planning.png) |
+
+| 行程详情 | 景点地图 |
+|---|---|
+| ![行程详情](docs/screenshots/detail.png) | ![景点地图](docs/screenshots/map.png) |
+
+| 实时天气 | 个人中心 |
+|---|---|
+| ![实时天气](docs/screenshots/weather.png) | ![个人中心](docs/screenshots/profile.png) |
+
+## �🛠️ 技术栈
 
 ### 后端
 - [Spring Boot 4.x](https://spring.io/projects/spring-boot) — Web 框架
