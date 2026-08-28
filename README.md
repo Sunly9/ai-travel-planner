@@ -10,7 +10,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 
-[功能特性](#功能特性) · [技术栈](#技术栈) · [快速开始](#快速开始) · [项目结构](#项目结构) · [接口文档](#主要接口)
+[功能特性](#-功能特性) · [技术栈](#-技术栈) · [快速开始](#-快速开始) · [项目结构](#-项目结构) · [接口文档](#-主要接口)
 
 </div>
 
@@ -29,62 +29,6 @@
 | 🧭 **一键导航** | 点击景点直接跳转高德地图 APP/网页版导航 |
 | 💬 **AI 对话** | 旅游相关问题智能问答 |
 | 📸 **行程分享** | 生成行程图片，下载或分享给朋友 |
-
-## 🖼️ 截图
-
-> 请把以下截图保存到项目 `docs/screenshots/` 目录，图片会自动显示
-
-<div align="center">
-  <table>
-    <tr>
-      <td align="center"><strong>首页</strong></td>
-      <td align="center"><strong>AI 规划</strong></td>
-    </tr>
-    <tr>
-      <td align="center"><img src="docs/screenshots/home.png" width="300" alt="首页占位图" /></td>
-      <td align="center"><img src="docs/screenshots/planing.png" width="300" alt="规划占位图" /></td>
-    </tr>
-    <tr>
-      <td align="center"><strong>行程详情</strong></td>
-      <td align="center"><strong>景点地图</strong></td>
-    </tr>
-    <tr>
-      <td align="center"><img src="docs/screenshots/detail.png" width="300" alt="详情占位图" /></td>
-      <td align="center"><img src="docs/screenshots/map.png" width="300" alt="地图占位图" /></td>
-    </tr>
-    <tr>
-      <td align="center"><strong>天气</strong></td>
-      <td align="center"><strong>个人中心</strong></td>
-    </tr>
-    <tr>
-      <td align="center"><img src="docs/screenshots/weather.png" width="300" alt="天气占位图" /></td>
-      <td align="center"><img src="docs/screenshots/profile.png" width="300" alt="个人中心占位图" /></td>
-    </tr>
-  </table>
-</div>
-
-### 怎么准备截图
-
-1. 启动前后端（见 [快速开始](#快速开始)）
-2. 在手机浏览器或 DevTools 移动端模式下访问 `http://localhost:5173`
-3. 每个页面截图（建议 375×812 或类似手机尺寸）
-4. 保存为下面的文件名，放到 `docs/screenshots/` 目录：
-
-| 文件名 | 对应页面 |
-|---|---|
-| `home.png` | 首页（热门城市网格） |
-| `planing.png` | 正在 AI 生成行程的加载页面 |
-| `detail.png` | 行程详情（景点卡片 + 天气 + 预算） |
-| `map.png` | 景点地图展开的样子 |
-| `weather.png` | 天气卡片特写 |
-| `profile.png` | 我的页面 |
-
-5. 在项目根目录执行：
-```bash
-git add docs/screenshots/
-git commit -m "docs: 添加项目截图"
-git push
-```
 
 ## 🛠️ 技术栈
 
@@ -118,7 +62,7 @@ ai-travel-planner/
 │   ├── pom.xml
 │   └── src/main/
 │       ├── java/org/example/travel_project1/
-│       │   ├── controller/           # REST API 层
+│       │   ├── controller/           # REST API
 │       │   │   ├── AuthController         # 登录注册
 │       │   │   ├── TravelController       # AI 行程推荐（SSE）
 │       │   │   ├── TravelPlanController   # 行程 CRUD
@@ -127,34 +71,26 @@ ai-travel-planner/
 │       │   │   ├── GeoController          # 高德地理编码代理
 │       │   │   ├── ChatMessageController  # AI 对话
 │       │   │   └── UserController         # 用户信息
-│       │   ├── service/              # 业务逻辑层
-│       │   ├── repository/           # 数据访问层
+│       │   ├── service/              # 业务逻辑
+│       │   ├── repository/           # 数据访问
 │       │   ├── entity/               # JPA 实体
 │       │   ├── dto/                  # 请求参数
 │       │   ├── vo/                   # 返回值
 │       │   ├── common/               # 配置 / 过滤器 / 异常处理
 │       │   └── utils/                # LLM 调用工具
 │       └── resources/
-│           ├── application.yml           # 生产配置（密钥从环境变量读）
-│           └── application.example.yml   # 配置模板
+│           ├── application.example.yml   # 配置模板
+│           └── ...
 ├── travl-1/                          # 前端
 │   ├── package.json
 │   ├── vite.config.js
-│   ├── .env.development
-│   ├── .env.production
 │   └── src/
 │       ├── views/                    # 页面
-│       │   ├── Home.vue                   # 首页
-│       │   ├── Detail.vue                 # 行程详情
-│       │   ├── Login.vue                  # 登录
-│       │   ├── Profile.vue                # 我的
-│       │   └── ...
 │       ├── components/               # 组件
 │       ├── router/                   # 路由
-│       ├── stores/                   # Pinia 状态
+│       ├── stores/                   # Pinia
 │       └── utils/                    # 请求封装
-└── docs/
-    └── screenshots/                  # 截图目录（需手动创建）
+└── docs/screenshots/                 # 项目截图
 ```
 
 ## 🚀 快速开始
@@ -179,12 +115,10 @@ cd ai-travel-planner
 
 ```bash
 cd travel-project1
-
-# 复制配置模板
 cp src/main/resources/application.example.yml src/main/resources/application.yml
 ```
 
-编辑 `application.yml`，填入你的密钥（也可以通过环境变量配置，推荐生产用）：
+编辑 `application.yml`，填入你的密钥：
 
 ```yaml
 llm:
@@ -226,13 +160,9 @@ npm run dev
 # → http://localhost:5173
 ```
 
-### 6. 注册账号
-
-首次使用需要注册，然后就能体验 AI 规划了 ✨
-
 ## 📡 主要接口
 
-| 方法 | 路径 | 说明 | 需要登录 |
+| 方法 | 路径 | 说明 | 需登录 |
 |---|---|---|---|
 | POST | `/api/auth/register` | 用户注册 | ❌ |
 | POST | `/api/auth/login` | 用户登录 | ❌ |
@@ -253,11 +183,11 @@ npm run dev
 
 ## 🔐 安全说明
 
-- `application.yml` **不提交到 Git**（已加入 `.gitignore`）
+- `application.yml` 不提交到 Git（已加入 `.gitignore`）
 - 密钥通过环境变量或本地配置文件注入
-- JWT token 有效期 24 小时，带自动续期
+- JWT token 有效期 24 小时，支持自动续期
 - 密码 BCrypt 加密存储
-- 敏感接口需要登录才能访问
+- 敏感接口需登录访问
 
 ## 📝 License
 
