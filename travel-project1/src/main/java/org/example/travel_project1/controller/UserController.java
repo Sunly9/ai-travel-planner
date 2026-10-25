@@ -11,7 +11,11 @@ import org.example.travel_project1.vo.Result;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -122,7 +126,27 @@ public class UserController {
         Map<String, Object> stats = new HashMap<>();
         stats.put("planCount", travelPlanRepository.countByUserId(userId));
         stats.put("favoriteCount", favoriteRepository.countByUserId(userId));
-        stats.put("chatCount", chatMessageRepository.countByUserId(userId));
+        // 对话轮次 = 用户提问的条数（原来统计的是消息总条数，和「轮次」对不上）
+        stats.put("chatCount", chatMessageRepository.countByUserIdAndRole(userId, "user"));
+
+        // 最近 7 天每天的规划次数，给趋势图用
+        LocalDate from = LocalDate.now().minusDays(6);
+        Map<String, Long> byDay = new HashMap<>();
+        for (LocalDateTime t : travelPlanRepository.findCreateTimesSince(userId, from.atStartOfDay())) {
+            if (t != null) {
+                byDay.merge(t.toLocalDate().toString(), 1L, Long::sum);
+            }
+        }
+        List<Map<String, Object>> trend = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            LocalDate d = from.plusDays(i);
+            Map<String, Object> item = new HashMap<>();
+            item.put("date", d.toString());
+            item.put("label", d.getMonthValue() + "/" + d.getDayOfMonth());
+            item.put("count", byDay.getOrDefault(d.toString(), 0L));
+            trend.add(item);
+        }
+        stats.put("planTrend", trend);
 
         return Result.ok(stats);
     }

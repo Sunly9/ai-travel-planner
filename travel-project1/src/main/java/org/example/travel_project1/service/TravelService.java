@@ -1,23 +1,32 @@
 package org.example.travel_project1.service;
 
-
-import io.micrometer.common.util.internal.logging.InternalLogger;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.example.travel_project1.utils.LLMutils;
 import org.example.travel_project1.vo.StreamDoneVO;
 import org.example.travel_project1.vo.StreamErrorVO;
-import org.example.travel_project1.vo.streamChunkVO;
-import org.springframework.beans.factory.annotation.Value;
 import org.example.travel_project1.vo.TravelRecommendVO;
+import org.example.travel_project1.vo.StreamChunkVO;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
+@Slf4j
 @Service
+@RequiredArgsConstructor
 public class TravelService {
+
+    /** SSE 专用线程池（见 AsyncConfig），替代原来每个请求 new Thread() */
+    private final ExecutorService sseExecutor;
+
     @Value("${llm.api-key}")
     private String apiKey;
     @Value("${llm.base-url}")
@@ -26,21 +35,22 @@ public class TravelService {
     private String model;
 
     private LLMutils llmUtils;
-    private ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostConstruct
     public void init() {
         this.llmUtils = new LLMutils(apiKey, baseUrl, model);
     }
 
-    public TravelRecommendVO recommend (String city, Double budget,Integer days) {
-        TravelRecommendVO result = new TravelRecommendVO();
-
+    /** 同步推荐（不带流式，保留给外部/调试用） */
+    public TravelRecommendVO recommend(String city, Double budget, Integer days) {
         String prompt = buildTravelPrompt(city, budget, days);
-        try{
-            String response = llmUtils.chat(null,prompt);
+        try {
+            String response = llmUtils.chat(null, prompt);
             return parseTravelResponse(response);
-        }catch (Exception e){
+        } catch (Exception e) {
+            log.error("旅游推荐失败: {}", e.getMessage());
+            TravelRecommendVO result = new TravelRecommendVO();
             result.setSuccess(false);
             result.setError("旅游推荐失败");
             return result;
@@ -96,7 +106,7 @@ public class TravelService {
         return null;
     }
 
-    private String buildTravelPrompt(String city, Double budget,Integer days) {
+    private String buildTravelPrompt(String city, Double budget, Integer days) {
         return "你是一位资深旅游规划专家，请为用户量身定制一份详细的旅游行程规划。\n\n" +
                 "【用户需求】\n" +
                 "目的地：" + city + "\n" +
@@ -124,82 +134,120 @@ public class TravelService {
      */
     public SseEmitter recommendStream(String city, Double budget, Integer days) {
         SseEmitter emitter = new SseEmitter(600000L);
-        new Thread(() -> {
+        AtomicBoolean cancelled = newCancelledFlag(emitter);
+
+        submit(emitter, () -> {
+            String prompt = buildTravelPrompt(city, budget, days);
+            StringBuilder fullContent = new StringBuilder();
+
+            Consumer<String> callback = content -> {
+                if (cancelled.get()) {
+                    return;
+                }
+                try {
+                    fullContent.append(content);
+                    emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(StreamChunkVO.of(content))));
+                } catch (Exception e) {
+                    log.debug("发送推荐 chunk 失败（客户端可能已断开）: {}", e.getMessage());
+                }
+            };
+
             try {
-                String prompt = buildTravelPrompt(city, budget, days);
-                StringBuilder fullContent = new StringBuilder();
+                llmUtils.chatStream(null, prompt, callback, cancelled::get);
+            } catch (Exception e) {
+                log.error("生成行程失败", e);
+                sendError(emitter, e.getMessage());
+                emitter.completeWithError(e);
+                return;
+            }
 
-                Consumer<String> callback = content -> {
-                    try {
-                        fullContent.append(content);
-                        String json = objectMapper.writeValueAsString(streamChunkVO.of(content));
-                        emitter.send(SseEmitter.event().data(json));
-                    } catch (Exception e) {
-                        System.out.println("发送推荐chunk失败: " + e);
-                    }
-                };
+            if (cancelled.get()) {
+                log.info("客户端已断开，跳过 final 事件");
+                return;
+            }
 
-                System.out.println("=== 开始调用 LLM 流式生成 ===");
-                llmUtils.chatStream(null, prompt, callback);
-                System.out.println("=== LLM 流式生成结束，总长度: " + fullContent.length() + " ===");
-
-                // 流结束后，extractJson 清洗掉可能的 markdown 包裹，发 final 事件
+            try {
+                // 流结束后清洗掉可能的 markdown 包裹
                 String cleanJson = extractJson(fullContent.toString());
                 String finalContent = (cleanJson != null) ? cleanJson : fullContent.toString();
-                System.out.println("=== final JSON 长度: " + finalContent.length() + " ===");
-                String finalJson = objectMapper.writeValueAsString(
-                    java.util.Map.of("type", "final", "content", finalContent)
-                );
-                emitter.send(SseEmitter.event().data(finalJson));
-
-                String doneJson = objectMapper.writeValueAsString(StreamDoneVO.of());
-                emitter.send(SseEmitter.event().data(doneJson));
+                log.info("行程 JSON 生成完成, 长度 {}", finalContent.length());
+                emitter.send(SseEmitter.event().data(
+                        objectMapper.writeValueAsString(Map.of("type", "final", "content", finalContent))));
+                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(StreamDoneVO.of())));
                 emitter.complete();
             } catch (Exception e) {
-                System.out.println("=== recommendStream 异常 ===");
-                e.printStackTrace();
-                try {
-                    String errorJson = objectMapper.writeValueAsString(StreamErrorVO.of(e.getMessage()));
-                    emitter.send(SseEmitter.event().data(errorJson));
-                } catch (Exception e1) {
-                    System.out.println("发送错误失败: " + e1);
-                }
+                log.error("发送 final 事件失败", e);
+                sendError(emitter, e.getMessage());
                 emitter.completeWithError(e);
             }
-        }).start();
+        });
+
         return emitter;
     }
 
-    public SseEmitter chat(String  message) {
+    /** AI 对话（流式） */
+    public SseEmitter chat(String message) {
         SseEmitter emitter = new SseEmitter(180000L);
-        //发送处理逻辑
-        new Thread(() -> {
-            try{
-                String systemPrompt = "你是一个有好的旅游助手，请用中文回答用户的问题。";
-                Consumer<String> callback = content -> {
-                    try{
-                        String json = objectMapper.writeValueAsString(streamChunkVO.of(content));
-                        emitter.send(SseEmitter.event().data(json));
-                    }catch (Exception e) {
-                        System.out.println("发送消息失败" + e);
-                    }
-                };
-                llmUtils.chatStream(systemPrompt, message, callback);
-                //发送完成
-                String doneJson = objectMapper.writeValueAsString(StreamDoneVO.of());
-                emitter.send(SseEmitter.event().data(doneJson));
-                emitter.complete();
-            }catch (Exception e) {
-                try{
-                    String errorJson = objectMapper.writeValueAsString(StreamErrorVO.of(e.getMessage()));
-                    emitter.send(SseEmitter.event().data(errorJson));
-                }catch (Exception e1) {
-                    System.out.println("发送消息失败" + e1);
+        AtomicBoolean cancelled = newCancelledFlag(emitter);
+
+        submit(emitter, () -> {
+            String systemPrompt = "你是一个友好的旅游助手，请用中文回答用户的问题。";
+            Consumer<String> callback = content -> {
+                if (cancelled.get()) {
+                    return;
                 }
+                try {
+                    emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(StreamChunkVO.of(content))));
+                } catch (Exception e) {
+                    log.debug("发送对话 chunk 失败（客户端可能已断开）: {}", e.getMessage());
+                }
+            };
+
+            try {
+                llmUtils.chatStream(systemPrompt, message, callback, cancelled::get);
+                if (cancelled.get()) {
+                    return;
+                }
+                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(StreamDoneVO.of())));
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("AI 对话失败", e);
+                sendError(emitter, e.getMessage());
                 emitter.completeWithError(e);
             }
+        });
 
-        }).start();
         return emitter;
+    }
+
+    /** 注册客户端断开/超时回调，置位后可中止上游请求 */
+    private AtomicBoolean newCancelledFlag(SseEmitter emitter) {
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        emitter.onCompletion(() -> cancelled.set(true));
+        emitter.onTimeout(() -> {
+            cancelled.set(true);
+            emitter.complete();
+        });
+        emitter.onError(e -> cancelled.set(true));
+        return cancelled;
+    }
+
+    /** 提交到 SSE 线程池；池满时直接回一个错误事件，而不是把请求挂死 */
+    private void submit(SseEmitter emitter, Runnable task) {
+        try {
+            sseExecutor.execute(task);
+        } catch (RejectedExecutionException e) {
+            log.warn("SSE 线程池已满，拒绝请求");
+            sendError(emitter, "服务繁忙，请稍后再试");
+            emitter.complete();
+        }
+    }
+
+    private void sendError(SseEmitter emitter, String message) {
+        try {
+            emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(StreamErrorVO.of(message))));
+        } catch (Exception ignored) {
+            // 客户端已断开，忽略
+        }
     }
 }

@@ -3,8 +3,11 @@ package org.example.travel_project1.dto;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
+/**
+ * 行程生成请求参数（原类名 TravelResquestDTO 拼写有误，已修正）
+ */
 @Data
-public class TravelResquestDTO {
+public class TravelRequestDTO {
     @NotNull(message = "城市不能为空")
     private String city;
     @NotNull(message = "天数不能为空")
