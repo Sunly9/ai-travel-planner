@@ -21,6 +21,9 @@ public class User {
 
     private String nickname;
     private String phone;
+
+    // 头像以 base64 data URL 存储（前端会先压缩到 512px），varchar(255) 装不下
+    @Column(columnDefinition = "MEDIUMTEXT")
     private String avatar;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;

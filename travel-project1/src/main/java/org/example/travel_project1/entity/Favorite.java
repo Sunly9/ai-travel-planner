@@ -19,7 +19,8 @@ public class Favorite {
     @Column(nullable = false)
     private String spotName;
 
-    @Column
+    // 收藏时把整个景点对象 JSON 存进来（含 description），长度很容易超过 255，必须 TEXT
+    @Column(columnDefinition = "TEXT")
     private String spotData;
 
     @Column
