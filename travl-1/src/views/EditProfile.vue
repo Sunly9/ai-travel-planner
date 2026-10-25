@@ -41,6 +41,7 @@ import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { useUserStore } from '../stores/user'
 import request from '../utils/request'
+import { setUserInfo } from '../utils/authStorage'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -75,7 +76,7 @@ const onSave = async () => {
     }
     // 刷新本地用户信息
     userStore.userInfo = res.data
-    localStorage.setItem('userInfo', JSON.stringify(res.data))
+    setUserInfo(res.data)
     showToast({ message: '保存成功', icon: 'success' })
     setTimeout(() => router.back(), 800)
   } catch (err) {

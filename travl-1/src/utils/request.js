@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { showLoadingToast, closeToast, showToast } from 'vant'
+import { getToken, setToken, clearAuth } from './authStorage'
 
 let loadingCount = 0
 
@@ -16,11 +17,12 @@ const hideGlobalLoading = () => {
   }
 }
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3200'
+// 留空 = 相对路径，由 Vite proxy / Nginx 转发到后端
+const baseURL = import.meta.env.VITE_API_BASE_URL || ''
 
 // Token 自动续期：检查是否快过期
 const shouldRefreshToken = () => {
-  const token = localStorage.getItem('token')
+  const token = getToken()
   if (!token) return false
   try {
     const payload = JSON.parse(atob(token.split('.')[1]))
@@ -37,11 +39,11 @@ const refreshToken = async () => {
   try {
     const res = await fetch(`${baseURL}/api/auth/refresh`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      headers: { 'Authorization': `Bearer ${getToken()}` }
     })
     const data = await res.json()
     if (data.success && data.data?.token) {
-      localStorage.setItem('token', data.data.token)
+      setToken(data.data.token)
     }
   } catch {
     // 刷新失败忽略，等过期了再踢到登录页
@@ -60,7 +62,7 @@ const service = axios.create({
 // 请求拦截器
 service.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token')
+    const token = getToken()
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
       // 静默续期，不阻塞当前请求
@@ -84,9 +86,14 @@ service.interceptors.response.use(
   },
   (error) => {
     hideGlobalLoading()
+    // 后端现在返回真实的 4xx/5xx，把业务提示挪到 message 上，
+    // 页面里 catch (err) { showToast(err.message) } 依然能显示中文提示
+    const serverMessage = error.response?.data?.message
+    if (serverMessage) {
+      error.message = serverMessage
+    }
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('userInfo')
+      clearAuth()
       window.location.href = '/login'
       return Promise.reject(error)
     }
@@ -112,6 +119,8 @@ export async function fetchStream(url, data, onChunk, onFinal, onError){
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      // 流式接口走原生 fetch，不经过 axios 拦截器，这里手动带上 token
+      ...(getToken() ? { 'Authorization': `Bearer ${getToken()}` } : {}),
     },
     body: JSON.stringify(data),
     signal: controller.signal

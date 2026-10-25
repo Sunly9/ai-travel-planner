@@ -10,20 +10,35 @@
       </div>
       <div class="chat-container" ref="chatContainer">
         <div v-if="messages.length === 0" class="chat-empty">
-          <van-empty description="开始和旅游助手对话" />
+          <EmptyState
+            icon="💬"
+            title="开始和旅游助手对话"
+            description="不知道该问什么？点下面任意一条试试"
+          />
           <div class="quick-questions">
             <div class="quick-title">
               常见问题
             </div>
-            <van-tag class="quick-tag" v-for="question in quickQuestions" :key="question" mark size="large">{{question}}</van-tag>
+            <van-tag
+              class="quick-tag"
+              v-for="question in quickQuestions"
+              :key="question"
+              mark
+              size="large"
+              @click="sendQuick(question)"
+            >{{question}}</van-tag>
           </div>
         </div>
         <!-- 有对话内容 -->
          <div class="message-list" v-else>
-          <ChatBubble v-for="msg in messages" :key="msg.id" :message="msg" />
-          <div v-if="isStreaming" class="streaming-indictor">
+          <!-- 按日期分组，避免历史消息混成一坨 -->
+          <template v-for="item in messageGroups" :key="item.key">
+            <div v-if="item.type === 'divider'" class="date-divider">{{ item.label }}</div>
+            <ChatBubble v-else :message="item.msg" />
+          </template>
+          <div v-if="isStreaming" class="streaming-indicator">
             <van-loading type="spinner" size="20px" />
-            <span>AI正在思考中...</span>
+            <span>AI 正在思考中…</span>
           </div>
 
         </div>
@@ -46,11 +61,12 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { fetchStream } from '../utils/request'
 import request from '../utils/request'
 import { showToast, showConfirmDialog } from 'vant'
 import ChatBubble from '../components/ChatBubble.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const chatContainer = ref(null)
 
@@ -66,6 +82,31 @@ const onBack = () => { router.back() }
 const inputMessage = ref('')
 const isStreaming = ref(false)
 const messages = ref([])
+
+// 消息按日期分组，插入「今天 / 昨天 / M月D日」分隔条
+const dateLabel = (ts) => {
+  const d = ts ? new Date(ts) : new Date()
+  if (Number.isNaN(d.getTime())) return '更早'
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const diffDays = Math.round((startOf(new Date()) - startOf(d)) / 86400000)
+  if (diffDays === 0) return '今天'
+  if (diffDays === 1) return '昨天'
+  return `${d.getMonth() + 1}月${d.getDate()}日`
+}
+
+const messageGroups = computed(() => {
+  const out = []
+  let last = ''
+  for (const msg of messages.value) {
+    const label = dateLabel(msg.timestamp)
+    if (label !== last) {
+      out.push({ type: 'divider', label, key: `divider-${label}-${out.length}` })
+      last = label
+    }
+    out.push({ type: 'msg', msg, key: `msg-${msg.id}` })
+  }
+  return out
+})
 
 const quickQuestions = ref([
   '北京有哪些必去的景点？',
@@ -110,6 +151,13 @@ const sendMessage = () => {
 
 const onEnter = (e) => {
   e.preventDefault()
+  sendMessage()
+}
+
+// 点击「常见问题」标签：直接当作一条消息发出去
+const sendQuick = (question) => {
+  if (isStreaming.value) return
+  inputMessage.value = question
   sendMessage()
 }
 
@@ -183,7 +231,8 @@ const clearHistory = async () => {
 }
 
 .chat-container {
-  height: 630px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px;
   padding-bottom: 60px;
@@ -217,6 +266,15 @@ const clearHistory = async () => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.date-divider {
+  align-self: center;
+  font-size: 12px;
+  color: #969799;
+  background: #f2f3f5;
+  padding: 2px 10px;
+  border-radius: 10px;
 }
 
 .streaming-indicator {

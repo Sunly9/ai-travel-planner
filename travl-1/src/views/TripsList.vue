@@ -3,11 +3,16 @@
     <van-nav-bar title="我的行程" left-arrow @click-left="goBack" />
 
     <div class="page-content">
-      <van-loading v-if="loading" size="48px" class="loading-container">加载中...</van-loading>
+      <SkeletonList v-if="loading" :rows="4" />
 
-      <van-empty v-else-if="plans.length === 0" description="暂无行程，去首页规划一个吧～">
-        <van-button type="primary" @click="goHome">去规划</van-button>
-      </van-empty>
+      <EmptyState
+        v-else-if="plans.length === 0"
+        icon="🧳"
+        title="还没有保存的行程"
+        description="去首页选个目的地和天数，让 AI 帮你规划一份"
+      >
+        <van-button type="primary" round @click="goHome">去规划</van-button>
+      </EmptyState>
 
       <div v-else class="plan-list">
         <div v-for="plan in plans" :key="plan.id" class="plan-card" @click="viewDetail(plan)">
@@ -15,8 +20,12 @@
             <span class="plan-city">🏖️ {{ plan.city }}</span>
             <span class="plan-days">{{ plan.days }}天</span>
           </div>
+          <div class="plan-summary" v-if="plan.spots.length">
+            首站 {{ plan.spots[0] }}
+            <span v-if="plan.spots.length > 1"> 等 {{ plan.spots.length }} 个地点</span>
+          </div>
           <div class="plan-meta">
-            <span>预算：{{ plan.budget }}元</span>
+            <span v-if="plan.budget">预算 {{ plan.budget }} 元</span>
             <span>{{ formatTime(plan.createTime) }}</span>
           </div>
           <div class="plan-actions" @click.stop>
@@ -33,6 +42,8 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
 import request from '../utils/request'
+import SkeletonList from '../components/SkeletonList.vue'
+import EmptyState from '../components/EmptyState.vue'
 
 const router = useRouter()
 const loading = ref(false)
@@ -47,12 +58,30 @@ const formatTime = (t) => {
   return `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
+// 从 planData 里抽出景点名，用于卡片摘要（首站 + 地点数）
+const summarize = (planData) => {
+  try {
+    const data = typeof planData === 'string' ? JSON.parse(planData) : planData
+    const days = Array.isArray(data?.dailyItinerary) ? data.dailyItinerary : []
+    const spots = []
+    for (const day of days) {
+      for (const key of ['morning', 'afternoon', 'evening']) {
+        const name = day?.[key]?.spot || day?.[key]?.name
+        if (name) spots.push(name)
+      }
+    }
+    return spots
+  } catch (e) {
+    return []
+  }
+}
+
 const loadPlans = async () => {
   loading.value = true
   try {
     const res = await request.get('/api/plans')
     if (res.success && res.data) {
-      plans.value = res.data
+      plans.value = res.data.map((p) => ({ ...p, spots: summarize(p.planData) }))
     }
   } catch (err) {
     showToast(err.message || '加载失败')
@@ -110,12 +139,6 @@ onMounted(() => {
   padding: 16px;
 }
 
-.loading-container {
-  padding-top: 60px;
-  display: flex;
-  justify-content: center;
-}
-
 .plan-list {
   display: flex;
   flex-direction: column;
@@ -127,6 +150,11 @@ onMounted(() => {
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: transform 0.15s;
+}
+
+.plan-card:active {
+  transform: scale(0.99);
 }
 
 .plan-header {
@@ -148,6 +176,15 @@ onMounted(() => {
   background: #e6f0ff;
   padding: 2px 10px;
   border-radius: 10px;
+}
+
+.plan-summary {
+  font-size: 13px;
+  color: #646566;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .plan-meta {

@@ -1,17 +1,16 @@
 <script setup>
 //首次启动触发
-import {onMounted,reactive,ref,nextTick,watch} from 'vue'
+import {onMounted,reactive,ref,nextTick,watch,computed} from 'vue'
 //本页面接收参数
 import {useRoute,useRouter} from 'vue-router'
 import { showToast } from 'vant'
-import html2canvas from 'html2canvas'
-import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 //引入接口
 import request from '../utils/request'
 import { fetchStream } from '../utils/request'
 import SpotItem from '../components/SpotItem.vue'
 import BudgetTable from '../components/BudgetTable.vue'
+import SkeletonList from '../components/SkeletonList.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -42,6 +41,15 @@ const activeDays = ref([])
 const weatherData = ref(null)
 // 地图实例
 let mapInstance = null
+// leaflet 按需加载（约 150KB，不进首屏包）
+let L = null
+const getLeaflet = async () => {
+  if (!L) {
+    const mod = await import('leaflet')
+    L = mod.default || mod
+  }
+  return L
+}
 // 所有景点标记 { day: [{ marker, spot }] }
 let spotMarkers = {}
 // 地图当前显示的天数（0=全部）
@@ -52,6 +60,37 @@ const mapActivePeriod = ref(null)
 const spotCoords = ref({})  // key: "day-period" → {lat, lng, name}
 // 当前高亮的行程区域（给 CSS 加 glow 效果）
 const highlightedSection = ref('')  // "day-period"
+
+// 地图状态：是否已初始化成功、是否定位失败
+// 定位失败时给用户一句明确的话，而不是丢一块灰底让人以为页面坏了
+const mapReady = ref(false)
+const mapError = ref(false)
+
+// 地理编码并发上限：一次行程最多十来个景点，限 4 路既快又不会打爆配额
+const GEO_CONCURRENCY = 4
+
+/** 简易并发池：同时最多 limit 个 worker 跑，其余排队 */
+const runWithConcurrency = async (items, limit, worker) => {
+  const queue = [...items]
+  const runners = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift()
+      await worker(item)
+    }
+  })
+  await Promise.all(runners)
+}
+
+// 天气数据的观测时间，前端显示「更新于 18:00」让用户判断新鲜度
+const weatherUpdatedText = computed(() => {
+  const t = weatherData.value?.updatedAt
+  if (!t) return ''
+  const [datePart, timePart = ''] = String(t).split('T')
+  const hhmm = timePart.slice(0, 5)
+  const now = new Date()
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return datePart === todayStr ? hhmm : `${datePart.slice(5)} ${hhmm}`
+})
 
 const fetchWeather = async (city) => {
   if (!city) return
@@ -74,6 +113,8 @@ const initMap = async (cityName) => {
     console.warn('=== 地图容器不存在 ===')
     return
   }
+  // 首次真正用到地图时才加载 leaflet
+  await getLeaflet()
   if (mapInstance) {
     mapInstance.remove()
     mapInstance = null
@@ -101,9 +142,17 @@ const initMap = async (cityName) => {
     centerLat = weatherData.value.latitude
     centerLng = weatherData.value.longitude
   }
-  if (!centerLat) return
+  if (!centerLat) {
+    // 城市中心都拿不到：标记失败并提示，等天气接口回来时 watch 会自动重试
+    mapError.value = true
+    mapReady.value = false
+    console.warn('=== 地图定位失败：拿不到城市中心坐标 ===')
+    return
+  }
+  mapError.value = false
 
   mapInstance = L.map('travel-map').setView([centerLat, centerLng], 12)
+  mapReady.value = true
 
   // 高德地图瓦片（中文，国内秒加载）
   L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
@@ -130,57 +179,65 @@ const initMap = async (cityName) => {
     }
   }
 
-  // 3. 逐个地理编码并标注（不限数量了）
+  // 3. 并发地理编码 + 标注
+  //    后端已按 (景点, 城市) 落库缓存，命中时基本零延迟；这里限并发 4，
+  //    避免一次 10 个景点同时打高德把配额打爆。
   const colors = { morning: '#fa8c16', afternoon: '#1890ff', evening: '#52c41a' }
-  for (const spot of allSpots) {
+
+  const addSpotMarker = (spot, geo) => {
+    if (!mapInstance || !geo || !L) return
+    const sLat = geo.latitude
+    const sLng = geo.longitude
+    // 缓存坐标，供点击行程卡片时 flyTo 用
+    spotCoords.value[`${spot.day}-${spot.period}`] = { lat: sLat, lng: sLng, name: spot.name }
+
+    const icon = L.divIcon({
+      html: `<div style="background:${colors[spot.period]};width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4);">${spot.day}</div>`,
+      className: 'custom-marker',
+      iconSize: [26, 26],
+      iconAnchor: [13, 13]
+    })
+    const periodZh = spot.period === 'morning' ? '上午' : spot.period === 'afternoon' ? '下午' : '晚上'
+    // 高德导航 URI（GCJ-02 坐标系，手机装了高德 APP 直接唤起，没装打开网页版）
+    const amapNavUrl = `https://uri.amap.com/navigation?to=${sLng},${sLat},${encodeURIComponent(spot.name)}&mode=car&policy=1&src=travel-project&coordinate=gaode&callnative=1`
+    const amapWalkUrl = `https://uri.amap.com/navigation?to=${sLng},${sLat},${encodeURIComponent(spot.name)}&mode=walk&policy=1&src=travel-project&coordinate=gaode&callnative=1`
+    const marker = L.marker([sLat, sLng], { icon })
+      .bindPopup(`
+        <div style="min-width:180px;font-size:14px;">
+          <b style="font-size:15px;">${spot.name}</b><br>
+          <span style="color:#969799;font-size:12px;">第${spot.day}天 · ${periodZh}</span><br>
+          <div style="display:flex;gap:6px;margin-top:10px;">
+            <a href="${amapNavUrl}" target="_blank" style="flex:1;text-align:center;padding:5px 0;background:#1989fa;color:#fff;border-radius:4px;text-decoration:none;font-size:12px;">🚗 驾车导航</a>
+            <a href="${amapWalkUrl}" target="_blank" style="flex:1;text-align:center;padding:5px 0;background:#52c41a;color:#fff;border-radius:4px;text-decoration:none;font-size:12px;">🚶 步行导航</a>
+          </div>
+        </div>
+      `)
+      .on('click', () => {
+        // 点击地图标记 → 行程面板联动
+        onMarkerClick(spot.day, spot.period)
+      })
+
+    // 按天分组存起来
+    if (!spotMarkers[spot.day]) spotMarkers[spot.day] = []
+    spotMarkers[spot.day].push({ marker, spot })
+
+    // 默认全部加到地图上
+    marker.addTo(mapInstance)
+  }
+
+  await runWithConcurrency(allSpots, GEO_CONCURRENCY, async (spot) => {
     try {
       const res = await request.get('/api/geo/search', {
         params: { address: spot.name, city: cityName },
         noLoading: true
       })
-      if (res.success && res.data && res.data.latitude && mapInstance) {
-        const sLat = res.data.latitude
-        const sLng = res.data.longitude
-        // 缓存坐标
-        spotCoords.value[`${spot.day}-${spot.period}`] = { lat: sLat, lng: sLng, name: spot.name }
-
-        const icon = L.divIcon({
-          html: `<div style="background:${colors[spot.period]};width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4);">${spot.day}</div>`,
-          className: 'custom-marker',
-          iconSize: [26, 26],
-          iconAnchor: [13, 13]
-        })
-        const periodZh = spot.period === 'morning' ? '上午' : spot.period === 'afternoon' ? '下午' : '晚上'
-        // 高德导航 URI（GCJ-02 坐标系，手机装了高德 APP 直接唤起，没装打开网页版）
-        const amapNavUrl = `https://uri.amap.com/navigation?to=${sLng},${sLat},${encodeURIComponent(spot.name)}&mode=car&policy=1&src=travel-project&coordinate=gaode&callnative=1`
-        const amapWalkUrl = `https://uri.amap.com/navigation?to=${sLng},${sLat},${encodeURIComponent(spot.name)}&mode=walk&policy=1&src=travel-project&coordinate=gaode&callnative=1`
-        const marker = L.marker([sLat, sLng], { icon })
-          .bindPopup(`
-            <div style="min-width:180px;font-size:14px;">
-              <b style="font-size:15px;">${spot.name}</b><br>
-              <span style="color:#969799;font-size:12px;">第${spot.day}天 · ${periodZh}</span><br>
-              <div style="display:flex;gap:6px;margin-top:10px;">
-                <a href="${amapNavUrl}" target="_blank" style="flex:1;text-align:center;padding:5px 0;background:#1989fa;color:#fff;border-radius:4px;text-decoration:none;font-size:12px;">🚗 驾车导航</a>
-                <a href="${amapWalkUrl}" target="_blank" style="flex:1;text-align:center;padding:5px 0;background:#52c41a;color:#fff;border-radius:4px;text-decoration:none;font-size:12px;">🚶 步行导航</a>
-              </div>
-            </div>
-          `)
-          .on('click', () => {
-            // 点击地图标记 → 行程面板联动
-            onMarkerClick(spot.day, spot.period)
-          })
-
-        // 按天分组存起来
-        if (!spotMarkers[spot.day]) spotMarkers[spot.day] = []
-        spotMarkers[spot.day].push({ marker, spot })
-
-        // 默认全部加到地图上
-        marker.addTo(mapInstance)
+      if (res.success && res.data && res.data.latitude) {
+        addSpotMarker(spot, res.data)
       }
     } catch (e) {
-      // 单个景点地理编码失败不影响其他
+      // 单个景点失败不影响其他
     }
-  }
+  })
 
   // 地图加完后，按当前选中的天数过滤显示
   filterMapByDay(mapActiveDay.value)
@@ -277,10 +334,14 @@ const onDayExpand = (day) => {
 
 
 onMounted(() =>{
-  console.log(route.query)
   forData.city = route.query.city
   forData.budget = route.query.budget
   forData.days = route.query.days
+
+  // 天气和行程是两条独立链路：不管从哪个入口进来，都去拉一次天气
+  // （以前 savedPlan 分支直接 return，导致「我的行程」进去既没天气也没地图）
+  fetchWeather(route.query.city)
+
   // 如果有保存的行程数据，直接用，不调 AI
   if (route.query.savedPlan) {
     try {
@@ -293,7 +354,6 @@ onMounted(() =>{
     }
   }
   fetchRecommend()
-  fetchWeather(route.query.city)
 })
 
 // 等 tripData 和 weatherData 都就绪后，DOM 渲染完再初始化地图
@@ -394,6 +454,8 @@ const onShare = async () => {
       showToast('未找到可分享的内容')
       return
     }
+    // 截图库同样按需加载（约 200KB）
+    const { default: html2canvas } = await import('html2canvas')
     const canvas = await html2canvas(target, {
       useCORS: true,
       backgroundColor: '#f5f5f5',
@@ -420,13 +482,13 @@ const onCloseShare = () => {
       <van-nav-bar title="旅游推荐" left-arrow @click="goBack"/>
       <div class="page-content">  
         <div v-if="loading && !tripData" class="loading-container">
-          <van-loading size="48px" type="spinner">
-            {{ isStreaming ? 'AI 正在生成行程...' : '加载中...' }}
-          </van-loading>
+          <van-loading size="28px" type="spinner" />
+          <div class="loading-text">{{ isStreaming ? 'AI 正在生成行程…' : '加载中…' }}</div>
+          <SkeletonList :rows="3" class="loading-skeleton" />
         </div>
         <div v-else-if="error">
-          <van-empty description="描述文字">
-            <van-button @click="fetchRecommend" type="primary" class="bottom-button">按钮</van-button>
+          <van-empty description="行程生成失败了，可能是网络或 AI 服务暂时不可用">
+            <van-button @click="fetchRecommend" type="primary" class="bottom-button">重新生成</van-button>
           </van-empty>
         </div>
         <template v-else-if="tripData && tripData.success === true">
@@ -434,9 +496,23 @@ const onCloseShare = () => {
               <h2>{{tripData.city}} · {{ tripData.days }}天的行程</h2>
               <span class="trip-budget">预算：{{ forData.budget }}元</span>
           </div>
-          <!-- 天气卡片 -->
+          <!-- 天气卡片：拿不到就整块隐藏，不影响行程和地图 -->
           <div class="card weather-card" v-if="weatherData && weatherData.forecast">
-            <div class="section-title">未来 3 天天气</div>
+            <div class="weather-head">
+              <div class="section-title">天气</div>
+              <span class="weather-updated" v-if="weatherUpdatedText">更新于 {{ weatherUpdatedText }}</span>
+            </div>
+            <!-- 当前实况 -->
+            <div class="weather-now" v-if="weatherData.current && weatherData.current.temperature != null">
+              <span class="weather-now-temp">{{ Math.round(weatherData.current.temperature) }}°</span>
+              <div class="weather-now-meta">
+                <span class="weather-now-desc">{{ weatherData.current.weatherDescription }}</span>
+                <span class="weather-now-sub">
+                  体感 {{ Math.round(weatherData.current.apparentTemperature) }}° · 湿度 {{ weatherData.current.humidity }}% · 风速 {{ weatherData.current.windSpeed }}m/s
+                </span>
+              </div>
+            </div>
+            <div class="weather-days-title">未来 3 天</div>
             <div class="weather-list">
               <div class="weather-item" v-for="item in weatherData.forecast" :key="item.date">
                 <div class="weather-date">{{ item.date.substring(5) }}</div>
@@ -446,8 +522,8 @@ const onCloseShare = () => {
               </div>
             </div>
           </div>
-          <!-- 地图卡片 -->
-          <div class="card map-card" v-if="weatherData">
+          <!-- 地图卡片：只依赖行程数据，天气挂了下也能出图 -->
+          <div class="card map-card" v-if="tripData">
             <div class="section-title">景点地图</div>
             <!-- 天数切换 Tab -->
             <div class="map-day-tabs" v-if="tripData.dailyItinerary?.length">
@@ -458,7 +534,15 @@ const onCloseShare = () => {
                    :class="{ active: mapActiveDay === day.day }"
                    @click="filterMapByDay(day.day)">第{{ day.day }}天</div>
             </div>
-            <div id="travel-map"></div>
+            <div class="map-body">
+              <div id="travel-map"></div>
+              <!-- 定位失败时给明确提示，而不是一块看不懂的灰底 -->
+              <div v-if="mapError && !mapReady" class="map-fallback">
+                <van-icon name="location-o" size="22" />
+                <span>地图定位失败，请检查网络后刷新重试</span>
+                <span class="map-fallback-sub">（行程内容、天气均不受影响）</span>
+              </div>
+            </div>
             <div class="map-legend">
               <span class="legend-item" :class="{ active: !mapActivePeriod }" @click="filterMapByPeriod(null)">
                 <span class="legend-dot" style="background:#ccc"></span>全部
@@ -552,6 +636,21 @@ const onCloseShare = () => {
     padding: 40px 16px;
     gap: 16px;
 }
+
+.loading-text {
+    font-size: 14px;
+    color: #969799;
+}
+
+.loading-skeleton {
+    width: 100%;
+    margin-top: 4px;
+}
+
+.loading-skeleton :deep(.skeleton-card) {
+    box-shadow: none;
+    border: 1px solid #f2f3f5;
+}
 .overview-card h2 {
     margin:10px 0;
     font-size: 20px;
@@ -574,6 +673,57 @@ const onCloseShare = () => {
 
 .weather-card {
   margin-bottom: 16px;
+}
+
+.weather-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.weather-updated {
+  font-size: 12px;
+  color: #c8c9cc;
+}
+
+.weather-now {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #eef5ff, #f7fbff);
+  border-radius: 12px;
+}
+
+.weather-now-temp {
+  font-size: 34px;
+  font-weight: 700;
+  color: #1989fa;
+  line-height: 1;
+}
+
+.weather-now-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.weather-now-desc {
+  font-size: 15px;
+  font-weight: 600;
+  color: #323233;
+}
+
+.weather-now-sub {
+  font-size: 12px;
+  color: #969799;
+}
+
+.weather-days-title {
+  font-size: 13px;
+  color: #969799;
+  margin-bottom: 8px;
 }
 
 .weather-list {
@@ -650,6 +800,31 @@ const onCloseShare = () => {
   overflow: hidden;
   z-index: 1;
   background: #e8e8e8;
+}
+
+.map-body {
+  position: relative;
+}
+
+.map-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: #969799;
+  background: #f7f8fa;
+  border-radius: 10px;
+}
+
+.map-fallback-sub {
+  font-size: 12px;
+  color: #c8c9cc;
 }
 
 .map-legend {

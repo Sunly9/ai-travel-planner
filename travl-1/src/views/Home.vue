@@ -21,17 +21,29 @@
           />
           <van-field 
           v-model="forData.budget" 
+          type="number"
+          inputmode="decimal"
           label="预算（元）" 
-          placeholder="请输入预算" 
+          placeholder="如 3000" 
           style="background-color: #f7f7f7; border-radius: 8px; margin-bottom: 8px;"
           />
           <van-field 
           v-model="forData.days" 
+          type="number"
+          inputmode="numeric"
           label="天数" 
-          placeholder="请输入天数" 
+          placeholder="1~30 天" 
           style="background-color: #f7f7f7; border-radius: 8px; margin-bottom: 8px;"
           />
-          <van-button round type="primary" size="large" @click="handleSubmit">确认规划</van-button>
+          <van-button
+            round
+            type="primary"
+            size="large"
+            :loading="submitting"
+            loading-text="正在规划…"
+            :disabled="submitting"
+            @click="handleSubmit"
+          >确认规划</van-button>
         </div>
           <div class="card">
             <div class="section-title">
@@ -68,7 +80,8 @@
             <div class="section-title">
               为你推荐
             </div>
-            <van-grid v-if="recommendCities.length" :gutter="12" :column-num="4">
+            <SkeletonList v-if="recommendLoading" :rows="1" />
+            <van-grid v-else-if="recommendCities.length" :gutter="12" :column-num="4">
               <van-grid-item @click="selectedCity(city)" v-for="city in recommendCities" :key="city">
                 <div class="city-tag">
                   {{city}}
@@ -97,14 +110,19 @@
 import {ref, reactive, onMounted} from 'vue'
 import {useRouter} from 'vue-router'
 import request from '../utils/request'
+import { getToken } from '../utils/authStorage'
+import SkeletonList from '../components/SkeletonList.vue'
 
 const router = useRouter()
 const showCityPick = ref(false)
-const isLoggedIn = !!localStorage.getItem('token')
+const isLoggedIn = !!getToken()
 const recommendCities = ref([])
+const recommendLoading = ref(false)
+const submitting = ref(false)
 
 const loadRecommendCities = async () => {
   if (!isLoggedIn) return
+  recommendLoading.value = true
   try {
     const res = await request.get('/api/plans')
     const visited = new Set()
@@ -120,6 +138,8 @@ const loadRecommendCities = async () => {
     }
   } catch (err) {
     recommendCities.value = [...hotCities]
+  } finally {
+    recommendLoading.value = false
   }
 }
 
@@ -149,31 +169,33 @@ const allCities = [ '北京','上海','成都','重庆','西安','杭州','苏�
 const columns = allCities.map(city =>({text: city, value: city}))
 
 const handleSubmit = () => {
-  console.log(forData)
-  //校验
-  if (!forData.city){
+  if (submitting.value) return
+  // 校验
+  if (!forData.city) {
     showToast('请选择目的地')
     return
   }
-  if (!forData.budget || forData.budget <= 100){
+  const budget = Number(forData.budget)
+  if (!budget || budget <= 100) {
     showToast('请输入预算且预算不能低于100元')
     return
   }
-  if (!forData.days || forData.days <= 1 || forData.days > 30){
-    showToast('请输入天数且天数不能低于1天且不能超过30天')
+  const days = Number(forData.days)
+  if (!days || days < 1 || days > 30) {
+    showToast('天数需要在 1~30 天之间')
     return
   }
+  submitting.value = true
   router.push(
     {
       path:'/detail',
       query:{
         city:forData.city,
-        budget:forData.budget,
-        days:forData.days
+        budget:budget,
+        days:days
       }
     }
   )
-
 }
 
 const hotCities = ['北京', '上海', '广州', '深圳', '成都', '杭州', '西安', '重庆']

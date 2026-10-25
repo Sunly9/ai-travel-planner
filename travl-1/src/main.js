@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
 import 'vant/lib/index.css'
-// import './style.css'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
@@ -13,7 +12,6 @@ import {
        Popup,
        Picker,
        Button,
-       showToast,
        Grid, 
        GridItem,
        Loading,
@@ -43,7 +41,6 @@ app.use(CollapseItem)
 app.use(Cell)
 app.use(CellGroup)
 app.use(Loading)
-app.use(showToast)
 app.use(Grid)
 app.use(GridItem)
 app.mount('#app')

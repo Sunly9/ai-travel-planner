@@ -187,7 +187,7 @@ const userStore = useUserStore()
 const activeTab = ref('login')
 const showPwd = ref(false)
 const showRegPwd = ref(false)
-const rememberMe = ref(false)
+const rememberMe = ref(true)
 const agree = ref(false)
 
 const loginForm = reactive({
@@ -221,7 +221,7 @@ const switchTab = (tab) => {
 
 const onLogin = async () => {
   try {
-    const res = await userStore.login(loginForm.username, loginForm.password)
+    const res = await userStore.login(loginForm.username, loginForm.password, rememberMe.value)
     console.log('登录返回:', res)
     showToast({ message: '登录成功', icon: 'success', duration: 1500 })
     setTimeout(() => router.replace('/'), 1600)
@@ -234,7 +234,7 @@ const onLogin = async () => {
 
 const onRegister = async () => {
   try {
-    const res = await userStore.register(registerForm.username, registerForm.password, registerForm.nickname)
+    const res = await userStore.register(registerForm.username, registerForm.password, registerForm.nickname, rememberMe.value)
     console.log('注册返回:', res)
     showToast({ message: '注册成功', icon: 'success', duration: 1500 })
     setTimeout(() => router.replace('/'), 1600)

@@ -80,27 +80,63 @@ const avatarUrl = computed(() => userStore.userInfo?.avatar)
 
 const triggerAvatarUpload = () => avatarInput.value?.click()
 
+// 把图片压到 512px 以内的 JPEG 再传，避免 base64 撑爆请求体和数据库列
+const compressImage = (file, maxSide = 512, quality = 0.82) =>
+  new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+        const width = Math.max(1, Math.round(img.width * scale))
+        const height = Math.max(1, Math.round(img.height * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        // 透明 PNG 转 JPEG 会变黑，先铺白底
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, width, height)
+        ctx.drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      } catch (err) {
+        reject(err)
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('图片读取失败'))
+    }
+    img.src = url
+  })
+
 const onAvatarChange = async (e) => {
   const file = e.target.files?.[0]
+  e.target.value = '' // 允许连续选同一张图
   if (!file) return
-  if (file.size > 2 * 1024 * 1024) {
-    showToast('图片不能超过 2MB')
+  if (!file.type.startsWith('image/')) {
+    showToast('请选择图片文件')
     return
   }
-  const reader = new FileReader()
-  reader.onload = async () => {
-    try {
-      const base64 = reader.result
-      const res = await request.put('/api/user/profile', { avatar: base64 })
-      if (res.success) {
-        await userStore.fetchProfile()
-        showToast('头像已更新')
-      }
-    } catch (err) {
-      showToast('上传失败')
-    }
+  if (file.size > 10 * 1024 * 1024) {
+    showToast('原图请不要超过 10MB')
+    return
   }
-  reader.readAsDataURL(file)
+  try {
+    const base64 = await compressImage(file)
+    const res = await request.put('/api/user/profile', { avatar: base64 })
+    if (res.success) {
+      await userStore.fetchProfile()
+      showToast('头像已更新')
+    } else {
+      showToast(res.message || '上传失败')
+    }
+  } catch (err) {
+    console.error('头像上传失败:', err)
+    showToast('上传失败，请换一张图')
+  }
 }
 
 onMounted(async () => {

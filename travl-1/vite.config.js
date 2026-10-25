@@ -15,4 +15,27 @@ export default defineConfig({
       resolvers: [VantResolver()],
     }),
   ],
+  server: {
+    host: true,
+    port: 5174, // 5173 被本机另一个项目（nqx-ui）占用，固定到 5174 避免打开错应用
+    strictPort: false,
+    allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3200',
+        changeOrigin: true,
+      },
+    },
+  },
+  preview: {
+    host: true,
+    port: 5174,
+    allowedHosts: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3200',
+        changeOrigin: true,
+      },
+    },
+  },
 })
