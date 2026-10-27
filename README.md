@@ -107,7 +107,7 @@ ai-travel-planner/
 │       └── utils/                    # 请求封装 + 登录态存储
 ├── docs/
 │   ├── screenshots/                  # 项目截图
-│   └── sql/travel_init.sql           # 建库建表脚本（6 张表，可重复执行）
+│   └── sql/travel_init.sql           # 建库建表脚本（5 张表，可重复执行）
 ├── start.cmd                         # 一键启动（双击）
 └── start.ps1                         # 一键启动的实际逻辑
 ```
